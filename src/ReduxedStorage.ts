@@ -1,19 +1,20 @@
 import {
-  StoreCreator, StoreEnhancer, Action, Reducer,
-  Observer, Observable, Unsubscribe
-} from 'redux';
+  StoreCreator, StoreEnhancer, Action, Reducer, ReducersMapObject,
+  Observer, Observable, Unsubscribe,
+} from 'redux'
 import WrappedStorage from './WrappedStorage';
 import { cloneDeep, isEqual, mergeOrReplace } from './utils';
 import { ActionExtension, ExtendedStore } from './types/store';
 
 type ChangeListener = (oldState?: any) => void;
+type ReduxReducer = Reducer | ReducersMapObject
 
 export default class ReduxedStorage<
   W extends WrappedStorage<any>, A extends Action
 > {
-  createStore: StoreCreator;
+  configureStore: any;
   storage: W;
-  reducer: Reducer;
+  reducer: ReduxReducer;
   enhancer?: StoreEnhancer;
   state0: any;
   buffLife: number;
@@ -24,16 +25,16 @@ export default class ReduxedStorage<
   inited: boolean;
 
   constructor({
-    createStore, reducer, storage, bufferLife, initialState, enhancer
+    configureStore, reducer, storage, bufferLife, initialState, enhancer
   }: {
-    createStore: StoreCreator,
-    reducer: Reducer,
+    configureStore: StoreCreator,
+    reducer: ReduxReducer,
     storage: W,
     bufferLife?: number,
     initialState?: any,
     enhancer?: StoreEnhancer
   }) {
-    this.createStore = createStore;
+    this.configureStore = configureStore;
     this.storage = storage;
     this.reducer = reducer;
     this.enhancer = enhancer;
@@ -53,7 +54,7 @@ export default class ReduxedStorage<
       return new Promise(resolve => {
         resolve(this as ExtendedStore);
       });
-    const defaultState = this._createStore().getState();
+    const defaultState = this._configureStore().getState();
     // subscribe for changes in chrome.storage
     this.storage.subscribe((data, oldData) => {
       if (isEqual(data, this.state))
@@ -94,8 +95,16 @@ export default class ReduxedStorage<
     });
   }
 
-  _createStore(initialState?: any) {
-    return this.createStore( this.reducer, initialState, this.enhancer );
+  _configureStore(initialState?: any) {
+    try {
+      return this.configureStore({
+        reducer: this.reducer,
+        preloadedState: initialState,
+        enhancer: this.enhancer
+      });
+    } catch (err) {
+      throw new Error('configureStore() call failed');
+    }
   }
 
   _send2Storage(data: any) {
@@ -124,7 +133,7 @@ export default class ReduxedStorage<
   dispatch(action: A | ActionExtension) {
     if (!this.buffStore) {
       // this.buffStore is to be used with sync actions
-      this.buffStore = this._createStore(this.state) as ExtendedStore;
+      this.buffStore = this._configureStore(this.state) as ExtendedStore;
       // this.lastState is shared by both sync and async actions
       this.lastState = this.buffStore.getState();
       setTimeout(() => {
@@ -154,7 +163,7 @@ export default class ReduxedStorage<
     return lastStore.dispatch(action);
   }
 
-  replaceReducer(nextReducer: Reducer): ExtendedStore {
+  replaceReducer(nextReducer: ReduxReducer): ExtendedStore {
     if (typeof nextReducer === 'function') {
       this.reducer = nextReducer;
     }
